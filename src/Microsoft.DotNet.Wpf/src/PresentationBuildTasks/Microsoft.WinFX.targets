@@ -383,12 +383,14 @@
                      CleanupTemporaryTargetAssembly
        </MarkupCompilePass2ForMainAssemblyDependsOn>
 
-       <_CompileTargetNameForLocalType Condition="'$(_CompileTargetNameForLocalType)' == ''">_CompileTemporaryAssembly</_CompileTargetNameForLocalType>
+        <_CompileTargetNameForLocalType Condition="'$(_CompileTargetNameForLocalType)' == ''">_CompileTemporaryAssembly</_CompileTargetNameForLocalType>
 
+        <_ResolveProjectReferencesTargetName Condition="'$(IncludePackageReferencesDuringMarkupCompilation)' != 'false'">ResolveProjectReferences</_ResolveProjectReferencesTargetName>
+        <_CompileTemporaryAssemblyDependsOn>BuildOnlySettings;ResolveKeySource;$(_ResolveProjectReferencesTargetName);CoreCompile</_CompileTemporaryAssemblyDependsOn>
 
   </PropertyGroup>
 
-  <Target Name="_CompileTemporaryAssembly"  DependsOnTargets="BuildOnlySettings;ResolveKeySource;CoreCompile" />
+  <Target Name="_CompileTemporaryAssembly"  DependsOnTargets="$(_CompileTemporaryAssemblyDependsOn)" />
 
 
   <Target Name="MarkupCompilePass2ForMainAssembly"
@@ -407,12 +409,35 @@
                 Name : GenerateTemporaryTargetAssembly
 
   -->
+  <Target Name="GenerateTemporaryTargetAssembly" Condition="'$(_RequireMCPass2ForMainAssembly)' == 'true'"> 
 
-   <Target Name="GenerateTemporaryTargetAssembly"
-               Condition="'$(_RequireMCPass2ForMainAssembly)' == 'true' " >
+     <Message Text="MSBuildProjectFile is $(MSBuildProjectFile)" Condition="'$(MSBuildTargetsVerbose)' == 'true'" />
+         
+       <!-- Create the temporary target assembly project name -->
+       <PropertyGroup Condition="'$(IncludePackageReferencesDuringMarkupCompilation)' != 'false'">
+            <_ParentProjectName>$([System.IO.Path]::GetFileName('$(MSBuildProjectFullPath)'))</_ParentProjectName>
+            <_ParentProjectName>$([System.IO.Path]::GetFileNameWithoutExtension('$(MSBuildProjectFullPath)'))</_ParentProjectName>
+            <_ParentProjectExtension>$([System.IO.Path]::GetExtension($(MSBuildProjectFullPath)))</_ParentProjectExtension>
+            <_TemporaryTargetAssemblyProjectName>$([System.String]::Join("_", "$(_ParentProjectName)", "$([System.IO.Path]::GetFileNameWithoutExtension($([System.IO.Path]::GetRandomFileName())))", "wpftmp"))</_TemporaryTargetAssemblyProjectName>
+            <_TemporaryTargetAssemblyProjectName>$(_TemporaryTargetAssemblyProjectName)$(_ParentProjectExtension)</_TemporaryTargetAssemblyProjectName>
+       </PropertyGroup>
 
-      <Message Text="MSBuildProjectFile is $(MSBuildProjectFile)" Condition="'$(MSBuildTargetsVerbose)' == 'true'" />
+      <!-- Collect the generated NuGet files from the parent project required support PackageReferences -->
+      <ItemGroup Condition="'$(IncludePackageReferencesDuringMarkupCompilation)' != 'false'">
+        <SourceGeneratedNuGetPropsAndTargets Include="$(MSBuildProjectExtensionsPath)\$(_ParentProjectName).nuget.g.props"/>
+        <SourceGeneratedNuGetPropsAndTargets Include="$(MSBuildProjectExtensionsPath)\$(_ParentProjectName).nuget.g.targets"/>
+        <SourceGeneratedNuGetPropsAndTargets Include="$(MSBuildProjectExtensionsPath)\$(_ParentProjectName).dgspec.json"/>
+        <_DestinationGeneratedNuGetPropsAndTargets Include="@(SourceGeneratedNuGetPropsAndTargets->'%(RelativeDir)%(Filename)%(Extension)'->Replace('$(_ParentProjectName)', '$(_TemporaryTargetAssemblyProjectName)'))"/>
+      </ItemGroup>
 
+      <!-- Copy the renamed outer project NuGet props/targets files to the MSBuildProjectExtensionsPath used by NuGet -->
+      <Copy Condition="'$(IncludePackageReferencesDuringMarkupCompilation)' != 'false'"
+            SourceFiles="@(SourceNuGetPropsAndTargets)"
+            DestinationFiles="@(_DestinationGeneratedNuGetPropsAndTargets)" 
+       />
+
+          <!-- If IncludePackageReferencesDuringMarkupCompilation is 'false', use .NET Framework/.NET Core 3.1 
+            GenerateTemporaryTargetAssembly behavior -->
        <GenerateTemporaryTargetAssembly
                 CurrentProject="$(MSBuildProjectFullPath)"
                 MSBuildBinPath="$(MSBuildBinPath)"
@@ -424,6 +449,10 @@
                 AssemblyName="$(AssemblyName)"
                 CompileTargetName="$(_CompileTargetNameForLocalType)"
                 GenerateTemporaryTargetAssemblyDebuggingInformation="$(GenerateTemporaryTargetAssemblyDebuggingInformation)"
+                IncludePackageReferencesDuringMarkupCompilation="$(IncludePackageReferencesDuringMarkupCompilation)"
+                Analyzers="$(Analyzers)" 
+                MSBuildProjectExtensionsPath="$(MSBuildProjectExtensionsPath)" 
+                TemporaryTargetAssemblyProjectName="$(_TemporaryTargetAssemblyProjectName)"
                  >
 
        </GenerateTemporaryTargetAssembly>
@@ -433,7 +462,6 @@
        </CreateItem>
 
   </Target>
-
 
   <!--
 
